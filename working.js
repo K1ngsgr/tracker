@@ -535,9 +535,7 @@ bot.on(
   }
 );
 
-// ================= TRACKER =================
-
-const lastBalances = {};
+// ================= USDT CONTRACT =================
 
 const contract =
   new web3.eth.Contract(
@@ -568,6 +566,10 @@ const contract =
     ],
     USDT
   );
+
+// ================= TRACKER =================
+
+const lastBalances = {};
 
 async function checkTransfers() {
 
@@ -616,7 +618,7 @@ async function checkTransfers() {
           balance - old;
 
         console.log(
-          "🚀 RECEIVED"
+          `🚀 RECEIVED ${diff.toFixed(2)} USDT`
         );
 
         broadcast(
@@ -641,7 +643,7 @@ ${balance.toFixed(2)} USDT`
           old - balance;
 
         console.log(
-          "⚠️ SENT"
+          `⚠️ SENT ${diff.toFixed(2)} USDT`
         );
 
         broadcast(
@@ -677,9 +679,11 @@ console.log(
   "🚀 Transfer Tracker Started"
 );
 
+// every 5 sec
+
 setInterval(
   checkTransfers,
-  15000
+  5000
 );
 
 checkTransfers();
