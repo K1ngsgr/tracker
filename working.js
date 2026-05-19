@@ -20,18 +20,54 @@ app.listen(process.env.PORT || 3000, () => {
 
 // ================= TELEGRAM =================
 
+console.log("🤖 Starting Telegram Bot...");
+
 const bot = new TelegramBot(
   process.env.BOT_TOKEN,
   {
-    polling: {
-      interval: 1000,
-      autoStart: true,
-      params: {
-        timeout: 10
-      }
-    }
+    polling: true
   }
 );
+
+// ===== DEBUG =====
+
+bot.on("polling_error", (err) => {
+  console.log(
+    "❌ POLLING ERROR:",
+    err.message
+  );
+});
+
+bot.on("webhook_error", (err) => {
+  console.log(
+    "❌ WEBHOOK ERROR:",
+    err.message
+  );
+});
+
+bot.getMe()
+  .then((me) => {
+    console.log(
+      "✅ Telegram Connected:",
+      me.username
+    );
+  })
+  .catch((err) => {
+    console.log(
+      "❌ TELEGRAM LOGIN FAILED:",
+      err.message
+    );
+  });
+
+// ===== DELETE WEBHOOK =====
+
+bot.deleteWebHook()
+  .then(() => {
+    console.log(
+      "🧹 Webhook Deleted"
+    );
+  })
+  .catch(() => {});
 
 // ================= WEB3 =================
 
@@ -44,7 +80,31 @@ const WSS = process.env.RPC;
 const USDT =
   "0x55d398326f99059fF775485246999027B3197955".toLowerCase();
 
-// ================= FILE =================
+// ================= FILE SAFETY =================
+
+if (
+  !fs.existsSync(
+    "wallets.json"
+  )
+) {
+  fs.writeFileSync(
+    "wallets.json",
+    "[]"
+  );
+}
+
+if (
+  !fs.existsSync(
+    "users.json"
+  )
+) {
+  fs.writeFileSync(
+    "users.json",
+    "[]"
+  );
+}
+
+// ================= FILE FUNCTIONS =================
 
 function loadJSON(file) {
 
@@ -153,6 +213,11 @@ Choose action 👇`,
 
 bot.onText(/\/start/, (msg) => {
 
+  console.log(
+    "📩 /start from",
+    msg.chat.id
+  );
+
   ensureUser(msg.chat.id);
 
   dashboard(msg.chat.id);
@@ -214,7 +279,7 @@ bot.on(
       );
     }
 
-    // ===== COPY WALLET =====
+    // ===== COPY =====
 
     if (
       data.startsWith(
@@ -238,7 +303,7 @@ bot.on(
       );
     }
 
-    // ===== ADD WALLET =====
+    // ===== ADD =====
 
     if (data === "add") {
 
@@ -315,7 +380,7 @@ bot.on(
       );
     }
 
-    // ===== REMOVE WALLET =====
+    // ===== REMOVE =====
 
     if (
       data === "remove"
@@ -638,7 +703,7 @@ function startWS() {
         ) {
 
           console.log(
-            "INCOMING:",
+            "🚀 INCOMING:",
             value
           );
 
@@ -663,7 +728,7 @@ function startWS() {
         ) {
 
           console.log(
-            "OUTGOING:",
+            "⚠️ OUTGOING:",
             value
           );
 
