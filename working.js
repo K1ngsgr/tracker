@@ -11,7 +11,7 @@ const WebSocket = require("ws");
 const app = express();
 
 app.get("/", (req, res) => {
-  res.send("✅ USDT Tracker Running");
+  res.send("USDT Tracker Running");
 });
 
 app.listen(process.env.PORT || 3000, () => {
@@ -29,18 +29,9 @@ const bot = new TelegramBot(
   }
 );
 
-// ===== DEBUG =====
-
 bot.on("polling_error", (err) => {
   console.log(
     "❌ POLLING ERROR:",
-    err.message
-  );
-});
-
-bot.on("webhook_error", (err) => {
-  console.log(
-    "❌ WEBHOOK ERROR:",
     err.message
   );
 });
@@ -54,20 +45,12 @@ bot.getMe()
   })
   .catch((err) => {
     console.log(
-      "❌ TELEGRAM LOGIN FAILED:",
+      "❌ TELEGRAM ERROR:",
       err.message
     );
   });
 
-// ===== DELETE WEBHOOK =====
-
-bot.deleteWebHook()
-  .then(() => {
-    console.log(
-      "🧹 Webhook Deleted"
-    );
-  })
-  .catch(() => {});
+bot.deleteWebHook();
 
 // ================= WEB3 =================
 
@@ -80,31 +63,21 @@ const WSS = process.env.RPC;
 const USDT =
   "0x55d398326f99059fF775485246999027B3197955".toLowerCase();
 
-// ================= FILE SAFETY =================
+// ================= FILES =================
 
-if (
-  !fs.existsSync(
-    "wallets.json"
-  )
-) {
+if (!fs.existsSync("wallets.json")) {
   fs.writeFileSync(
     "wallets.json",
     "[]"
   );
 }
 
-if (
-  !fs.existsSync(
-    "users.json"
-  )
-) {
+if (!fs.existsSync("users.json")) {
   fs.writeFileSync(
     "users.json",
     "[]"
   );
 }
-
-// ================= FILE FUNCTIONS =================
 
 function loadJSON(file) {
 
@@ -189,15 +162,11 @@ Choose action 👇`,
               callback_data: "wallets"
             },
             {
-              text: "💰 Balance",
-              callback_data: "balance_menu"
+              text: "➕ Add Wallet",
+              callback_data: "add"
             }
           ],
           [
-            {
-              text: "➕ Add Wallet",
-              callback_data: "add"
-            },
             {
               text: "➖ Remove Wallet",
               callback_data: "remove"
@@ -213,18 +182,13 @@ Choose action 👇`,
 
 bot.onText(/\/start/, (msg) => {
 
-  console.log(
-    "📩 /start from",
-    msg.chat.id
-  );
-
   ensureUser(msg.chat.id);
 
   dashboard(msg.chat.id);
 
 });
 
-// ================= CALLBACKS =================
+// ================= BUTTONS =================
 
 bot.on(
   "callback_query",
@@ -256,50 +220,9 @@ bot.on(
         );
       }
 
-      const buttons =
-        wallets.map((w) => [
-          {
-            text:
-              w.slice(0, 8) +
-              "...",
-            callback_data:
-              "copy_" + w
-          }
-        ]);
-
       bot.sendMessage(
         chatId,
-        "📋 Wallet List:",
-        {
-          reply_markup: {
-            inline_keyboard:
-              buttons
-          }
-        }
-      );
-    }
-
-    // ===== COPY =====
-
-    if (
-      data.startsWith(
-        "copy_"
-      )
-    ) {
-
-      const wallet =
-        data.replace(
-          "copy_",
-          ""
-        );
-
-      bot.sendMessage(
-        chatId,
-        `📋 \`${wallet}\``,
-        {
-          parse_mode:
-            "Markdown"
-        }
+        wallets.join("\n")
       );
     }
 
@@ -370,8 +293,6 @@ bot.on(
           chatId,
           "✅ Wallet Added"
         );
-
-        dashboard(chatId);
       };
 
       bot.on(
@@ -386,202 +307,55 @@ bot.on(
       data === "remove"
     ) {
 
-      let wallets =
-        loadJSON(
-          "wallets.json"
-        );
-
-      if (!wallets.length) {
-
-        return bot.sendMessage(
-          chatId,
-          "❌ No wallets"
-        );
-      }
-
-      const buttons =
-        wallets.map((w) => [
-          {
-            text:
-              w.slice(0, 8) +
-              "...",
-            callback_data:
-              "del_" + w
-          }
-        ]);
-
       bot.sendMessage(
         chatId,
-        "🗑 Select wallet:",
-        {
-          reply_markup: {
-            inline_keyboard:
-              buttons
-          }
-        }
-      );
-    }
-
-    if (
-      data.startsWith(
-        "del_"
-      )
-    ) {
-
-      const wallet =
-        data.replace(
-          "del_",
-          ""
-        );
-
-      let wallets =
-        loadJSON(
-          "wallets.json"
-        );
-
-      wallets =
-        wallets.filter(
-          (x) =>
-            x !== wallet
-        );
-
-      saveJSON(
-        "wallets.json",
-        wallets
+        "🗑 Send wallet to remove:"
       );
 
-      bot.sendMessage(
-        chatId,
-        "🗑 Wallet Removed"
-      );
+      const handler = (
+        msg
+      ) => {
 
-      dashboard(chatId);
-    }
+        if (
+          msg.chat.id !==
+          chatId
+        )
+          return;
 
-    // ===== BALANCE MENU =====
-
-    if (
-      data ===
-      "balance_menu"
-    ) {
-
-      const wallets =
-        loadJSON(
-          "wallets.json"
+        bot.removeListener(
+          "message",
+          handler
         );
 
-      if (!wallets.length) {
+        const wallet =
+          msg.text.toLowerCase();
 
-        return bot.sendMessage(
-          chatId,
-          "❌ No wallets"
-        );
-      }
-
-      const buttons =
-        wallets.map((w) => [
-          {
-            text:
-              "💰 " +
-              w.slice(0, 6) +
-              "...",
-            callback_data:
-              "bal_" + w
-          }
-        ]);
-
-      bot.sendMessage(
-        chatId,
-        "Select wallet:",
-        {
-          reply_markup: {
-            inline_keyboard:
-              buttons
-          }
-        }
-      );
-    }
-
-    // ===== BALANCE =====
-
-    if (
-      data.startsWith(
-        "bal_"
-      )
-    ) {
-
-      const wallet =
-        data.replace(
-          "bal_",
-          ""
-        );
-
-      try {
-
-        const contract =
-          new web3.eth.Contract(
-            [
-              {
-                inputs: [
-                  {
-                    name:
-                      "account",
-                    type:
-                      "address"
-                  }
-                ],
-                name:
-                  "balanceOf",
-                outputs: [
-                  {
-                    type:
-                      "uint256"
-                  }
-                ],
-                stateMutability:
-                  "view",
-                type:
-                  "function"
-              }
-            ],
-            USDT
+        let wallets =
+          loadJSON(
+            "wallets.json"
           );
 
-        const bal =
-          await contract.methods
-            .balanceOf(
-              wallet
-            )
-            .call();
-
-        const readable =
-          web3.utils.fromWei(
-            bal,
-            "ether"
+        wallets =
+          wallets.filter(
+            (x) =>
+              x !== wallet
           );
+
+        saveJSON(
+          "wallets.json",
+          wallets
+        );
 
         bot.sendMessage(
           chatId,
-`💰 *Wallet Balance*
-
-📍 \`${wallet}\`
-
-🪙 ${Number(readable).toFixed(4)} USDT`,
-          {
-            parse_mode:
-              "Markdown"
-          }
+          "✅ Wallet Removed"
         );
+      };
 
-      } catch (err) {
-
-        console.log(err);
-
-        bot.sendMessage(
-          chatId,
-          "❌ Balance Error"
-        );
-      }
+      bot.on(
+        "message",
+        handler
+      );
     }
   }
 );
@@ -589,8 +363,6 @@ bot.on(
 // ================= WEBSOCKET =================
 
 let ws;
-let reconnectTimeout;
-let pingInterval;
 
 function startWS() {
 
@@ -605,24 +377,6 @@ function startWS() {
     console.log(
       "✅ Connected"
     );
-
-    clearInterval(
-      pingInterval
-    );
-
-    pingInterval =
-      setInterval(() => {
-
-        if (
-          ws.readyState ===
-          WebSocket.OPEN
-        ) {
-
-          ws.ping();
-
-        }
-
-      }, 15000);
 
     const topic =
       web3.utils.keccak256(
@@ -659,14 +413,12 @@ function startWS() {
           JSON.parse(data);
 
         if (
-          !msg.params
-            ?.result
+          !msg.params?.result
         )
           return;
 
         const log =
-          msg.params
-            .result;
+          msg.params.result;
 
         const wallets =
           loadJSON(
@@ -694,17 +446,12 @@ function startWS() {
         const tx =
 `https://bscscan.com/tx/${log.transactionHash}`;
 
-        // ===== INCOMING =====
-
         if (
-          wallets.includes(
-            to
-          )
+          wallets.includes(to)
         ) {
 
           console.log(
-            "🚀 INCOMING:",
-            value
+            "🚀 RECEIVED"
           );
 
           broadcast(
@@ -719,17 +466,12 @@ function startWS() {
           );
         }
 
-        // ===== OUTGOING =====
-
         if (
-          wallets.includes(
-            from
-          )
+          wallets.includes(from)
         ) {
 
           console.log(
-            "⚠️ OUTGOING:",
-            value
+            "⚠️ SENT"
           );
 
           broadcast(
@@ -763,20 +505,11 @@ function startWS() {
         "❌ WS Closed"
       );
 
-      clearInterval(
-        pingInterval
-      );
+      setTimeout(() => {
 
-      clearTimeout(
-        reconnectTimeout
-      );
+        startWS();
 
-      reconnectTimeout =
-        setTimeout(() => {
-
-          startWS();
-
-        }, 3000);
+      }, 3000);
     }
   );
 
@@ -788,12 +521,6 @@ function startWS() {
         "❌ WS ERROR:",
         err.message
       );
-
-      try {
-
-        ws.close();
-
-      } catch {}
 
     }
   );
