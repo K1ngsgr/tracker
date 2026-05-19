@@ -3,7 +3,6 @@ require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const { Web3 } = require("web3");
-const WebSocket = require("ws");
 const fs = require("fs");
 
 // ================= EXPRESS =================
@@ -34,24 +33,30 @@ bot.deleteWebHook();
 bot.on(
   "polling_error",
   (err) => {
+
     console.log(
       "❌ POLLING ERROR:",
       err.message
     );
+
   }
 );
 
 bot.getMe()
   .then((me) => {
+
     console.log(
       `✅ Telegram Connected: ${me.username}`
     );
+
   })
   .catch((err) => {
+
     console.log(
       "❌ TELEGRAM ERROR:",
       err.message
     );
+
   });
 
 // ================= WEB3 =================
@@ -61,7 +66,7 @@ const web3 = new Web3(
 );
 
 const USDT =
-  "0x55d398326f99059fF775485246999027B3197955".toLowerCase();
+  "0x55d398326f99059fF775485246999027B3197955";
 
 // ================= FILES =================
 
@@ -277,7 +282,7 @@ bot.on(
       data === "wallets"
     ) {
 
-      let wallets =
+      const wallets =
         getWallets();
 
       if (
@@ -324,67 +329,63 @@ bot.on(
       let text =
         "💰 *Wallet Balances*\n\n";
 
+      const contract =
+        new web3.eth.Contract(
+          [
+            {
+              constant: true,
+              inputs: [
+                {
+                  name:
+                    "_owner",
+                  type:
+                    "address"
+                }
+              ],
+              name:
+                "balanceOf",
+              outputs: [
+                {
+                  name:
+                    "balance",
+                  type:
+                    "uint256"
+                }
+              ],
+              type:
+                "function"
+            }
+          ],
+          USDT
+        );
+
       for (const wallet of wallets) {
 
         try {
 
-          // ===== BNB =====
-
-          const balance =
+          const bnbRaw =
             await web3.eth.getBalance(
               wallet
             );
 
           const bnb =
             web3.utils.fromWei(
-              balance,
+              bnbRaw,
               "ether"
             );
 
-          // ===== USDT =====
-
-          const contract =
-            new web3.eth.Contract(
-              [
-                {
-                  constant: true,
-                  inputs: [
-                    {
-                      name:
-                        "_owner",
-                      type:
-                        "address"
-                    }
-                  ],
-                  name:
-                    "balanceOf",
-                  outputs: [
-                    {
-                      name:
-                        "balance",
-                      type:
-                        "uint256"
-                    }
-                  ],
-                  type:
-                    "function"
-                }
-              ],
-              USDT
-            );
-
-          const usdt =
+          const usdtRaw =
             await contract.methods
               .balanceOf(wallet)
               .call();
 
-          const usdtBalance =
-            Number(usdt) / 1e18;
+          const usdt =
+            Number(usdtRaw) / 1e18;
 
           text +=
 `📍 \`${wallet}\`
 
-💵 USDT: ${usdtBalance.toFixed(2)}
+💵 USDT: ${usdt.toFixed(2)}
 🟡 BNB: ${Number(bnb).toFixed(4)}
 
 `;
@@ -534,175 +535,151 @@ bot.on(
   }
 );
 
-// ================= WEBSOCKET =================
+// ================= TRACKER =================
 
-let ws;
+const lastBalances = {};
 
-function connectWS() {
-
-  console.log(
-    "🔌 Connecting WS..."
+const contract =
+  new web3.eth.Contract(
+    [
+      {
+        constant: true,
+        inputs: [
+          {
+            name:
+              "_owner",
+            type:
+              "address"
+          }
+        ],
+        name:
+          "balanceOf",
+        outputs: [
+          {
+            name:
+              "balance",
+            type:
+              "uint256"
+          }
+        ],
+        type:
+          "function"
+      }
+    ],
+    USDT
   );
 
-  ws = new WebSocket(
-    process.env.RPC
-  );
+async function checkTransfers() {
 
-  ws.on(
-    "open",
-    () => {
+  const wallets =
+    getWallets();
 
-      console.log(
-        "✅ Connected"
-      );
+  if (
+    wallets.length === 0
+  ) {
+    return;
+  }
 
-      const topic =
-        web3.utils.keccak256(
-          "Transfer(address,address,uint256)"
-        );
+  for (const wallet of wallets) {
 
-      ws.send(
-        JSON.stringify({
-          jsonrpc:
-            "2.0",
-          id: 1,
-          method:
-            "eth_subscribe",
-          params: [
-            "logs",
-            {
-              address:
-                USDT,
-              topics: [
-                topic
-              ]
-            }
-          ]
-        })
-      );
-    }
-  );
+    try {
 
-  ws.on(
-    "message",
-    async (data) => {
+      const raw =
+        await contract.methods
+          .balanceOf(wallet)
+          .call();
 
-      try {
+      const balance =
+        Number(raw) / 1e18;
 
-        const parsed =
-          JSON.parse(data);
+      // ===== FIRST LOAD =====
 
-        if (
-          !parsed.params
-        ) return;
+      if (
+        lastBalances[wallet] ===
+        undefined
+      ) {
 
-        const log =
-          parsed.params.result;
+        lastBalances[wallet] =
+          balance;
 
-        const wallets =
-          getWallets();
+        continue;
+      }
 
-        const from =
-          web3.eth.abi.decodeParameter(
-            "address",
-            log.topics[1]
-          ).toLowerCase();
+      const old =
+        lastBalances[wallet];
 
-        const to =
-          web3.eth.abi.decodeParameter(
-            "address",
-            log.topics[2]
-          ).toLowerCase();
+      // ===== RECEIVED =====
 
-        const amount =
-          web3.utils.fromWei(
-            log.data,
-            "ether"
-          );
+      if (balance > old) {
 
-        const tx =
-`https://bscscan.com/tx/${log.transactionHash}`;
-
-        // ================= RECEIVED =================
-
-        if (
-          wallets.includes(to)
-        ) {
-
-          console.log(
-            "🚀 RECEIVED"
-          );
-
-          broadcast(
-`🚀 *USDT RECEIVED*
-
-💰 ${Number(amount).toFixed(2)} USDT
-
-📥 \`${to}\`
-📤 \`${from}\`
-
-🔗 ${tx}`
-          );
-        }
-
-        // ================= SENT =================
-
-        if (
-          wallets.includes(from)
-        ) {
-
-          console.log(
-            "⚠️ SENT"
-          );
-
-          broadcast(
-`⚠️ *USDT SENT*
-
-💸 ${Number(amount).toFixed(2)} USDT
-
-📤 \`${from}\`
-📥 \`${to}\`
-
-🔗 ${tx}`
-          );
-        }
-
-      } catch (err) {
+        const diff =
+          balance - old;
 
         console.log(
-          "MESSAGE ERROR:",
-          err.message
+          "🚀 RECEIVED"
+        );
+
+        broadcast(
+`🚀 *USDT RECEIVED*
+
+📥 Wallet:
+\`${wallet}\`
+
+💰 Amount:
+${diff.toFixed(2)} USDT
+
+💵 New Balance:
+${balance.toFixed(2)} USDT`
         );
       }
-    }
-  );
 
-  ws.on(
-    "error",
-    (err) => {
+      // ===== SENT =====
+
+      if (balance < old) {
+
+        const diff =
+          old - balance;
+
+        console.log(
+          "⚠️ SENT"
+        );
+
+        broadcast(
+`⚠️ *USDT SENT*
+
+📤 Wallet:
+\`${wallet}\`
+
+💸 Amount:
+${diff.toFixed(2)} USDT
+
+💵 New Balance:
+${balance.toFixed(2)} USDT`
+        );
+      }
+
+      lastBalances[wallet] =
+        balance;
+
+    } catch (err) {
 
       console.log(
-        "❌ WS ERROR:",
+        "TRACK ERROR:",
         err.message
       );
     }
-  );
-
-  ws.on(
-    "close",
-    () => {
-
-      console.log(
-        "❌ WS Closed"
-      );
-
-      setTimeout(() => {
-
-        connectWS();
-
-      }, 3000);
-    }
-  );
+  }
 }
 
-connectWS();
+// ================= START TRACKER =================
+
+console.log(
+  "🚀 Transfer Tracker Started"
+);
+
+setInterval(
+  checkTransfers,
+  15000
+);
+
+checkTransfers();
