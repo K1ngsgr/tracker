@@ -3,8 +3,8 @@ require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const { Web3 } = require("web3");
-const fs = require("fs");
 const WebSocket = require("ws");
+const fs = require("fs");
 
 // ================= EXPRESS =================
 
@@ -29,28 +29,36 @@ const bot = new TelegramBot(
   }
 );
 
-bot.on("polling_error", (err) => {
-  console.log(
-    "❌ POLLING ERROR:",
-    err.message
-  );
-});
+bot.deleteWebHook();
+
+bot.on(
+  "polling_error",
+  (err) => {
+
+    console.log(
+      "❌ POLLING ERROR:",
+      err.message
+    );
+
+  }
+);
 
 bot.getMe()
   .then((me) => {
+
     console.log(
-      "✅ Telegram Connected:",
-      me.username
+      `✅ Telegram Connected: ${me.username}`
     );
+
   })
   .catch((err) => {
+
     console.log(
       "❌ TELEGRAM ERROR:",
       err.message
     );
-  });
 
-bot.deleteWebHook();
+  });
 
 // ================= WEB3 =================
 
@@ -58,19 +66,10 @@ const web3 = new Web3(
   process.env.HTTP_RPC
 );
 
-const WSS = process.env.RPC;
-
 const USDT =
   "0x55d398326f99059fF775485246999027B3197955".toLowerCase();
 
 // ================= FILES =================
-
-if (!fs.existsSync("wallets.json")) {
-  fs.writeFileSync(
-    "wallets.json",
-    "[]"
-  );
-}
 
 if (!fs.existsSync("users.json")) {
   fs.writeFileSync(
@@ -79,18 +78,46 @@ if (!fs.existsSync("users.json")) {
   );
 }
 
+if (!fs.existsSync("wallets.json")) {
+  fs.writeFileSync(
+    "wallets.json",
+    "[]"
+  );
+}
+
+// ================= JSON =================
+
 function loadJSON(file) {
 
   try {
 
-    return JSON.parse(
-      fs.readFileSync(file)
+    const raw =
+      fs.readFileSync(
+        file,
+        "utf8"
+      );
+
+    if (!raw) return [];
+
+    const data =
+      JSON.parse(raw);
+
+    if (
+      !Array.isArray(data)
+    ) {
+      return [];
+    }
+
+    return data;
+
+  } catch (err) {
+
+    console.log(
+      "JSON ERROR:",
+      err.message
     );
 
-  } catch {
-
     return [];
-
   }
 }
 
@@ -107,9 +134,13 @@ function saveJSON(file, data) {
 function ensureUser(id) {
 
   let users =
-    loadJSON("users.json");
+    loadJSON(
+      "users.json"
+    );
 
-  if (!users.includes(id)) {
+  if (
+    !users.includes(id)
+  ) {
 
     users.push(id);
 
@@ -120,56 +151,82 @@ function ensureUser(id) {
   }
 }
 
+// ================= WALLETS =================
+
+function getWallets() {
+
+  return loadJSON(
+    "wallets.json"
+  );
+}
+
+function saveWallets(wallets) {
+
+  saveJSON(
+    "wallets.json",
+    wallets
+  );
+}
+
 // ================= BROADCAST =================
 
-function broadcast(msg) {
+function broadcast(text) {
 
   const users =
-    loadJSON("users.json");
+    loadJSON(
+      "users.json"
+    );
 
   users.forEach((id) => {
 
-    bot.sendMessage(id, msg, {
-      parse_mode: "Markdown"
-    }).catch((err) => {
-
-      console.log(
-        "SEND ERROR:",
-        err.message
-      );
-
-    });
+    bot.sendMessage(
+      id,
+      text,
+      {
+        parse_mode:
+          "Markdown"
+      }
+    ).catch(() => {});
 
   });
 }
 
 // ================= DASHBOARD =================
 
-function dashboard(chatId) {
+function sendDashboard(chatId) {
 
   bot.sendMessage(
     chatId,
 `📊 *USDT Tracker Dashboard*
 
-Choose action 👇`,
+Choose option 👇`,
     {
-      parse_mode: "Markdown",
+      parse_mode:
+        "Markdown",
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: "📋 Wallets",
-              callback_data: "wallets"
-            },
-            {
-              text: "➕ Add Wallet",
-              callback_data: "add"
+              text:
+                "📋 Wallets",
+              callback_data:
+                "wallets"
             }
           ],
           [
             {
-              text: "➖ Remove Wallet",
-              callback_data: "remove"
+              text:
+                "➕ Add Wallet",
+              callback_data:
+                "add"
+            }
+          ],
+          [
+            {
+              text:
+                "➖ Remove Wallet",
+              callback_data:
+                "remove"
             }
           ]
         ]
@@ -180,43 +237,54 @@ Choose action 👇`,
 
 // ================= START =================
 
-bot.onText(/\/start/, (msg) => {
+bot.onText(
+  /\/start/,
+  (msg) => {
 
-  ensureUser(msg.chat.id);
+    ensureUser(
+      msg.chat.id
+    );
 
-  dashboard(msg.chat.id);
+    sendDashboard(
+      msg.chat.id
+    );
 
-});
+  }
+);
 
 // ================= BUTTONS =================
 
 bot.on(
   "callback_query",
-  async (q) => {
+  (query) => {
 
     const chatId =
-      q.message.chat.id;
+      query.message.chat.id;
 
-    const data = q.data;
+    const data =
+      query.data;
 
     bot.answerCallbackQuery(
-      q.id
+      query.id
     );
 
-    // ===== WALLET LIST =====
+    // ===== LIST =====
 
-    if (data === "wallets") {
+    if (
+      data ===
+      "wallets"
+    ) {
 
       const wallets =
-        loadJSON(
-          "wallets.json"
-        );
+        getWallets();
 
-      if (!wallets.length) {
+      if (
+        wallets.length === 0
+      ) {
 
         return bot.sendMessage(
           chatId,
-          "❌ No wallets"
+          "❌ No wallets added"
         );
       }
 
@@ -228,72 +296,71 @@ bot.on(
 
     // ===== ADD =====
 
-    if (data === "add") {
+    if (
+      data === "add"
+    ) {
 
       bot.sendMessage(
         chatId,
-        "📥 Send wallet address:"
+        "📥 Send wallet address"
       );
 
-      const handler = (
-        msg
-      ) => {
+      const handler =
+        (msg) => {
 
-        if (
-          msg.chat.id !==
-          chatId
-        )
-          return;
+          if (
+            msg.chat.id !==
+            chatId
+          ) return;
 
-        bot.removeListener(
-          "message",
-          handler
-        );
-
-        const wallet =
-          msg.text.toLowerCase();
-
-        if (
-          !wallet.startsWith(
-            "0x"
-          )
-        ) {
-
-          return bot.sendMessage(
-            chatId,
-            "❌ Invalid wallet"
-          );
-        }
-
-        let wallets =
-          loadJSON(
-            "wallets.json"
+          bot.removeListener(
+            "message",
+            handler
           );
 
-        if (
-          wallets.includes(
+          const wallet =
+            msg.text.toLowerCase();
+
+          if (
+            !wallet.startsWith(
+              "0x"
+            )
+          ) {
+
+            return bot.sendMessage(
+              chatId,
+              "❌ Invalid wallet"
+            );
+          }
+
+          let wallets =
+            getWallets();
+
+          if (
+            wallets.includes(
+              wallet
+            )
+          ) {
+
+            return bot.sendMessage(
+              chatId,
+              "⚠️ Wallet already exists"
+            );
+          }
+
+          wallets.push(
             wallet
-          )
-        ) {
-
-          return bot.sendMessage(
-            chatId,
-            "⚠️ Wallet already exists"
           );
-        }
 
-        wallets.push(wallet);
+          saveWallets(
+            wallets
+          );
 
-        saveJSON(
-          "wallets.json",
-          wallets
-        );
-
-        bot.sendMessage(
-          chatId,
-          "✅ Wallet Added"
-        );
-      };
+          bot.sendMessage(
+            chatId,
+            "✅ Wallet Added"
+          );
+        };
 
       bot.on(
         "message",
@@ -304,53 +371,49 @@ bot.on(
     // ===== REMOVE =====
 
     if (
-      data === "remove"
+      data ===
+      "remove"
     ) {
 
       bot.sendMessage(
         chatId,
-        "🗑 Send wallet to remove:"
+        "🗑 Send wallet to remove"
       );
 
-      const handler = (
-        msg
-      ) => {
+      const handler =
+        (msg) => {
 
-        if (
-          msg.chat.id !==
-          chatId
-        )
-          return;
+          if (
+            msg.chat.id !==
+            chatId
+          ) return;
 
-        bot.removeListener(
-          "message",
-          handler
-        );
-
-        const wallet =
-          msg.text.toLowerCase();
-
-        let wallets =
-          loadJSON(
-            "wallets.json"
+          bot.removeListener(
+            "message",
+            handler
           );
 
-        wallets =
-          wallets.filter(
-            (x) =>
-              x !== wallet
+          const wallet =
+            msg.text.toLowerCase();
+
+          let wallets =
+            getWallets();
+
+          wallets =
+            wallets.filter(
+              (x) =>
+                x !== wallet
+            );
+
+          saveWallets(
+            wallets
           );
 
-        saveJSON(
-          "wallets.json",
-          wallets
-        );
-
-        bot.sendMessage(
-          chatId,
-          "✅ Wallet Removed"
-        );
-      };
+          bot.sendMessage(
+            chatId,
+            "✅ Wallet Removed"
+          );
+        };
 
       bot.on(
         "message",
@@ -364,44 +427,50 @@ bot.on(
 
 let ws;
 
-function startWS() {
+function connectWS() {
 
   console.log(
     "🔌 Connecting WS..."
   );
 
-  ws = new WebSocket(WSS);
+  ws = new WebSocket(
+    process.env.RPC
+  );
 
-  ws.on("open", () => {
+  ws.on(
+    "open",
+    () => {
 
-    console.log(
-      "✅ Connected"
-    );
-
-    const topic =
-      web3.utils.keccak256(
-        "Transfer(address,address,uint256)"
+      console.log(
+        "✅ Connected"
       );
 
-    ws.send(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method:
-          "eth_subscribe",
-        params: [
-          "logs",
-          {
-            address:
-              USDT,
-            topics: [
-              topic
-            ]
-          }
-        ]
-      })
-    );
-  });
+      const topic =
+        web3.utils.keccak256(
+          "Transfer(address,address,uint256)"
+        );
+
+      ws.send(
+        JSON.stringify({
+          jsonrpc:
+            "2.0",
+          id: 1,
+          method:
+            "eth_subscribe",
+          params: [
+            "logs",
+            {
+              address:
+                USDT,
+              topics: [
+                topic
+              ]
+            }
+          ]
+        })
+      );
+    }
+  );
 
   ws.on(
     "message",
@@ -409,21 +478,18 @@ function startWS() {
 
       try {
 
-        const msg =
+        const parsed =
           JSON.parse(data);
 
         if (
-          !msg.params?.result
-        )
-          return;
+          !parsed.params
+        ) return;
 
         const log =
-          msg.params.result;
+          parsed.params.result;
 
         const wallets =
-          loadJSON(
-            "wallets.json"
-          );
+          getWallets();
 
         const from =
           web3.eth.abi.decodeParameter(
@@ -437,7 +503,7 @@ function startWS() {
             log.topics[2]
           ).toLowerCase();
 
-        const value =
+        const amount =
           web3.utils.fromWei(
             log.data,
             "ether"
@@ -446,8 +512,12 @@ function startWS() {
         const tx =
 `https://bscscan.com/tx/${log.transactionHash}`;
 
+        // ===== RECEIVED =====
+
         if (
-          wallets.includes(to)
+          wallets.includes(
+            to
+          )
         ) {
 
           console.log(
@@ -457,7 +527,7 @@ function startWS() {
           broadcast(
 `🚀 *USDT RECEIVED*
 
-💰 ${Number(value).toFixed(2)} USDT
+💰 ${Number(amount).toFixed(2)} USDT
 
 📥 \`${to}\`
 📤 \`${from}\`
@@ -466,8 +536,12 @@ function startWS() {
           );
         }
 
+        // ===== SENT =====
+
         if (
-          wallets.includes(from)
+          wallets.includes(
+            from
+          )
         ) {
 
           console.log(
@@ -477,7 +551,7 @@ function startWS() {
           broadcast(
 `⚠️ *USDT SENT*
 
-💸 ${Number(value).toFixed(2)} USDT
+💸 ${Number(amount).toFixed(2)} USDT
 
 📤 \`${from}\`
 📥 \`${to}\`
@@ -498,22 +572,6 @@ function startWS() {
   );
 
   ws.on(
-    "close",
-    () => {
-
-      console.log(
-        "❌ WS Closed"
-      );
-
-      setTimeout(() => {
-
-        startWS();
-
-      }, 3000);
-    }
-  );
-
-  ws.on(
     "error",
     (err) => {
 
@@ -524,6 +582,22 @@ function startWS() {
 
     }
   );
+
+  ws.on(
+    "close",
+    () => {
+
+      console.log(
+        "❌ WS Closed"
+      );
+
+      setTimeout(() => {
+
+        connectWS();
+
+      }, 3000);
+    }
+  );
 }
 
-startWS();
+connectWS();
