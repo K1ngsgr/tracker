@@ -1,529 +1,252 @@
 require("dotenv").config();
-
-const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const { Web3 } = require("web3");
 const fs = require("fs");
 const WebSocket = require("ws");
 
-// ================= EXPRESS =================
+// ===== CONFIG =====
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-const app = express();
+// 🔥 TWO WEB3 CONNECTIONS
+const web3 = new Web3(process.env.HTTP_RPC); // for balance
+const WSS = process.env.RPC; // for realtime
 
-app.get("/", (req, res) => {
-  res.send("USDT Tracker Running");
-});
+const USDT = "0x55d398326f99059fF775485246999027B3197955".toLowerCase();
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("🌍 Server Running");
-});
-
-// ================= TELEGRAM =================
-
-console.log("🤖 Starting Telegram Bot...");
-
-const bot = new TelegramBot(
-  process.env.BOT_TOKEN,
-  {
-    polling: true
-  }
-);
-
-bot.on("polling_error", (err) => {
-  console.log(
-    "❌ POLLING ERROR:",
-    err.message
-  );
-});
-
-bot.getMe()
-  .then((me) => {
-    console.log(
-      "✅ Telegram Connected:",
-      me.username
-    );
-  })
-  .catch((err) => {
-    console.log(
-      "❌ TELEGRAM ERROR:",
-      err.message
-    );
-  });
-
-bot.deleteWebHook();
-
-// ================= WEB3 =================
-
-const web3 = new Web3(
-  process.env.HTTP_RPC
-);
-
-const WSS = process.env.RPC;
-
-const USDT =
-  "0x55d398326f99059fF775485246999027B3197955".toLowerCase();
-
-// ================= FILES =================
-
-if (!fs.existsSync("wallets.json")) {
-  fs.writeFileSync(
-    "wallets.json",
-    "[]"
-  );
-}
-
-if (!fs.existsSync("users.json")) {
-  fs.writeFileSync(
-    "users.json",
-    "[]"
-  );
-}
-
+// ===== FILE =====
 function loadJSON(file) {
-
-  try {
-
-    return JSON.parse(
-      fs.readFileSync(file)
-    );
-
-  } catch {
-
-    return [];
-
-  }
+  try { return JSON.parse(fs.readFileSync(file)); } catch { return []; }
 }
-
 function saveJSON(file, data) {
-
-  fs.writeFileSync(
-    file,
-    JSON.stringify(data, null, 2)
-  );
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-// ================= USERS =================
-
+// ===== USERS =====
 function ensureUser(id) {
-
-  let users =
-    loadJSON("users.json");
-
+  let users = loadJSON("users.json");
   if (!users.includes(id)) {
-
     users.push(id);
-
-    saveJSON(
-      "users.json",
-      users
-    );
+    saveJSON("users.json", users);
   }
 }
 
-// ================= BROADCAST =================
-
+// ===== BROADCAST =====
 function broadcast(msg) {
+  const users = loadJSON("users.json");
+  users.forEach(id => bot.sendMessage(id, msg, { parse_mode: "Markdown" }).catch(() => {}));
+}
 
-  const users =
-    loadJSON("users.json");
-
-  users.forEach((id) => {
-
-    bot.sendMessage(id, msg, {
-      parse_mode: "Markdown"
-    }).catch((err) => {
-
-      console.log(
-        "SEND ERROR:",
-        err.message
-      );
-
-    });
-
+// ===== DASHBOARD =====
+function dashboard(chatId) {
+  bot.sendMessage(chatId,
+`📊 *USDT Tracker Dashboard*
+Choose action 👇`,
+  {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "📋 Wallets", callback_data: "wallets" },
+          { text: "💰 Balance", callback_data: "balance_menu" }
+        ],
+        [
+          { text: "➕ Add Wallet", callback_data: "add" },
+          { text: "➖ Remove Wallet", callback_data: "remove" }
+        ]
+      ]
+    }
   });
 }
 
-// ================= DASHBOARD =================
-
-function dashboard(chatId) {
-
-  bot.sendMessage(
-    chatId,
-`📊 *USDT Tracker Dashboard*
-
-Choose action 👇`,
-    {
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: "📋 Wallets",
-              callback_data: "wallets"
-            },
-            {
-              text: "➕ Add Wallet",
-              callback_data: "add"
-            }
-          ],
-          [
-            {
-              text: "➖ Remove Wallet",
-              callback_data: "remove"
-            }
-          ]
-        ]
-      }
-    }
-  );
-}
-
-// ================= START =================
-
+// ===== START =====
 bot.onText(/\/start/, (msg) => {
-
   ensureUser(msg.chat.id);
-
   dashboard(msg.chat.id);
-
 });
 
-// ================= BUTTONS =================
+// ===== BUTTON HANDLER =====
+bot.on("callback_query", async (q) => {
+  const chatId = q.message.chat.id;
+  const data = q.data;
+  bot.answerCallbackQuery(q.id);
 
-bot.on(
-  "callback_query",
-  async (q) => {
+  // 📋 WALLET LIST
+  if (data === "wallets") {
+    const wallets = loadJSON("wallets.json");
 
-    const chatId =
-      q.message.chat.id;
+    if (!wallets.length) return bot.sendMessage(chatId, "❌ No wallets");
 
-    const data = q.data;
+    const buttons = wallets.map(w => [
+      { text: w.slice(0, 8) + "...", callback_data: "copy_" + w }
+    ]);
 
-    bot.answerCallbackQuery(
-      q.id
-    );
+    bot.sendMessage(chatId, "📋 Click to copy:", {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
 
-    // ===== WALLET LIST =====
+  // COPY WALLET
+  if (data.startsWith("copy_")) {
+    const wallet = data.replace("copy_", "");
+    bot.sendMessage(chatId, `📋 \`${wallet}\``, { parse_mode: "Markdown" });
+  }
 
-    if (data === "wallets") {
+  // ADD WALLET
+  if (data === "add") {
+    bot.sendMessage(chatId, "📥 Send wallet address:");
 
-      const wallets =
-        loadJSON(
-          "wallets.json"
-        );
+    const handler = (msg) => {
+      if (msg.chat.id !== chatId) return;
 
-      if (!wallets.length) {
+      const w = msg.text.toLowerCase();
+      bot.removeListener("message", handler);
 
-        return bot.sendMessage(
-          chatId,
-          "❌ No wallets"
-        );
+      if (!w.startsWith("0x")) {
+        return bot.sendMessage(chatId, "❌ Invalid address");
       }
 
-      bot.sendMessage(
-        chatId,
-        wallets.join("\n")
-      );
-    }
+      let wallets = loadJSON("wallets.json");
+      wallets.push(w);
+      saveJSON("wallets.json", wallets);
 
-    // ===== ADD =====
+      bot.sendMessage(chatId, "✅ Added");
+      dashboard(chatId);
+    };
 
-    if (data === "add") {
+    bot.on("message", handler);
+  }
 
-      bot.sendMessage(
-        chatId,
-        "📥 Send wallet address:"
-      );
+  // REMOVE WALLET
+  if (data === "remove") {
+    let wallets = loadJSON("wallets.json");
 
-      const handler = (
-        msg
-      ) => {
+    if (!wallets.length) return bot.sendMessage(chatId, "❌ No wallets");
 
-        if (
-          msg.chat.id !==
-          chatId
-        )
-          return;
+    const buttons = wallets.map(w => [
+      { text: w.slice(0, 8) + "...", callback_data: "del_" + w }
+    ]);
 
-        bot.removeListener(
-          "message",
-          handler
-        );
+    bot.sendMessage(chatId, "Select wallet:", {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
 
-        const wallet =
-          msg.text.toLowerCase();
+  if (data.startsWith("del_")) {
+    let wallets = loadJSON("wallets.json");
+    const w = data.replace("del_", "");
 
-        if (
-          !wallet.startsWith(
-            "0x"
-          )
-        ) {
+    wallets = wallets.filter(x => x !== w);
+    saveJSON("wallets.json", wallets);
 
-          return bot.sendMessage(
-            chatId,
-            "❌ Invalid wallet"
-          );
+    bot.sendMessage(chatId, "🗑 Removed");
+    dashboard(chatId);
+  }
+
+  // 💰 BALANCE MENU
+  if (data === "balance_menu") {
+    const wallets = loadJSON("wallets.json");
+
+    if (!wallets.length) return bot.sendMessage(chatId, "❌ No wallets");
+
+    const buttons = wallets.map(w => [
+      { text: "💰 " + w.slice(0, 6) + "...", callback_data: "bal_" + w }
+    ]);
+
+    bot.sendMessage(chatId, "Select wallet:", {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+
+  // 💰 GET BALANCE
+  if (data.startsWith("bal_")) {
+    const wallet = data.replace("bal_", "");
+
+    try {
+      const contract = new web3.eth.Contract([
+        {
+          inputs: [{ name: "account", type: "address" }],
+          name: "balanceOf",
+          outputs: [{ type: "uint256" }],
+          stateMutability: "view",
+          type: "function"
         }
+      ], USDT);
 
-        let wallets =
-          loadJSON(
-            "wallets.json"
-          );
+      const bal = await contract.methods.balanceOf(wallet).call();
+      const readable = (Number(bal) / 1e18).toFixed(4);
 
-        if (
-          wallets.includes(
-            wallet
-          )
-        ) {
+      bot.sendMessage(chatId,
+`💰 *Wallet Balance*
 
-          return bot.sendMessage(
-            chatId,
-            "⚠️ Wallet already exists"
-          );
-        }
-
-        wallets.push(wallet);
-
-        saveJSON(
-          "wallets.json",
-          wallets
-        );
-
-        bot.sendMessage(
-          chatId,
-          "✅ Wallet Added"
-        );
-      };
-
-      bot.on(
-        "message",
-        handler
-      );
-    }
-
-    // ===== REMOVE =====
-
-    if (
-      data === "remove"
-    ) {
-
-      bot.sendMessage(
-        chatId,
-        "🗑 Send wallet to remove:"
+📍 \`${wallet}\`
+🪙 ${readable} USDT`,
+        { parse_mode: "Markdown" }
       );
 
-      const handler = (
-        msg
-      ) => {
-
-        if (
-          msg.chat.id !==
-          chatId
-        )
-          return;
-
-        bot.removeListener(
-          "message",
-          handler
-        );
-
-        const wallet =
-          msg.text.toLowerCase();
-
-        let wallets =
-          loadJSON(
-            "wallets.json"
-          );
-
-        wallets =
-          wallets.filter(
-            (x) =>
-              x !== wallet
-          );
-
-        saveJSON(
-          "wallets.json",
-          wallets
-        );
-
-        bot.sendMessage(
-          chatId,
-          "✅ Wallet Removed"
-        );
-      };
-
-      bot.on(
-        "message",
-        handler
-      );
+    } catch (err) {
+      bot.sendMessage(chatId, "❌ RPC error");
     }
   }
-);
+});
 
-// ================= WEBSOCKET =================
-
-let ws;
-
+// ===== REALTIME TRACKER =====
 function startWS() {
-
-  console.log(
-    "🔌 Connecting WS..."
-  );
-
-  ws = new WebSocket(WSS);
+  console.log("🔌 Connecting WS...");
+  const ws = new WebSocket(WSS);
 
   ws.on("open", () => {
+    console.log("✅ Connected");
 
-    console.log(
-      "✅ Connected"
-    );
+    const topic = web3.utils.keccak256("Transfer(address,address,uint256)");
 
-    const topic =
-      web3.utils.keccak256(
-        "Transfer(address,address,uint256)"
-      );
-
-    ws.send(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method:
-          "eth_subscribe",
-        params: [
-          "logs",
-          {
-            address:
-              USDT,
-            topics: [
-              topic
-            ]
-          }
-        ]
-      })
-    );
+    ws.send(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_subscribe",
+      params: ["logs", { address: USDT, topics: [topic] }]
+    }));
   });
 
-  ws.on(
-    "message",
-    async (data) => {
+  ws.on("message", (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (!msg.params) return;
 
-      try {
+      const log = msg.params.result;
+      const wallets = loadJSON("wallets.json");
 
-        const msg =
-          JSON.parse(data);
+      const from = "0x" + log.topics[1].slice(26).toLowerCase();
+      const to = "0x" + log.topics[2].slice(26).toLowerCase();
+      const value = web3.utils.fromWei(
+        web3.utils.hexToNumberString(log.data),
+        "ether"
+      );
 
-        if (
-          !msg.params?.result
-        )
-          return;
-
-        const log =
-          msg.params.result;
-
-        const wallets =
-          loadJSON(
-            "wallets.json"
-          );
-
-        const from =
-          web3.eth.abi.decodeParameter(
-            "address",
-            log.topics[1]
-          ).toLowerCase();
-
-        const to =
-          web3.eth.abi.decodeParameter(
-            "address",
-            log.topics[2]
-          ).toLowerCase();
-
-        const value =
-          web3.utils.fromWei(
-            log.data,
-            "ether"
-          );
-
-        const tx =
-`https://bscscan.com/tx/${log.transactionHash}`;
-
-        if (
-          wallets.includes(to)
-        ) {
-
-          console.log(
-            "🚀 RECEIVED"
-          );
-
-          broadcast(
+      if (wallets.includes(to)) {
+        broadcast(
 `🚀 *USDT RECEIVED*
 
-💰 ${Number(value).toFixed(2)} USDT
-
+💰 ${value} USDT
 📥 \`${to}\`
-📤 \`${from}\`
+📤 \`${from}\``
+        );
+      }
 
-🔗 ${tx}`
-          );
-        }
-
-        if (
-          wallets.includes(from)
-        ) {
-
-          console.log(
-            "⚠️ SENT"
-          );
-
-          broadcast(
+      if (wallets.includes(from)) {
+        broadcast(
 `⚠️ *USDT SENT*
 
-💸 ${Number(value).toFixed(2)} USDT
-
+💸 ${value} USDT
 📤 \`${from}\`
-📥 \`${to}\`
-
-🔗 ${tx}`
-          );
-        }
-
-      } catch (err) {
-
-        console.log(
-          "MESSAGE ERROR:",
-          err.message
+📥 \`${to}\``
         );
-
       }
-    }
-  );
 
-  ws.on(
-    "close",
-    () => {
+    } catch {}
+  });
 
-      console.log(
-        "❌ WS Closed"
-      );
-
-      setTimeout(() => {
-
-        startWS();
-
-      }, 3000);
-    }
-  );
-
-  ws.on(
-    "error",
-    (err) => {
-
-      console.log(
-        "❌ WS ERROR:",
-        err.message
-      );
-
-    }
-  );
+  ws.on("close", () => setTimeout(startWS, 5000));
+  ws.on("error", () => ws.close());
 }
 
 startWS();
